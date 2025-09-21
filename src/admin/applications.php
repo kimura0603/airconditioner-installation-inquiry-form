@@ -1,8 +1,15 @@
 <?php
-require_once 'models/Application.php';
+require_once '../models/Application.php';
+require_once '../models/ApplicationPreferredSlot.php';
 
 $application = new Application();
+$applicationPreferredSlot = new ApplicationPreferredSlot();
 $applications = $application->getAll();
+
+// 各申し込みに希望日時情報を追加
+foreach ($applications as &$app) {
+    $app['preferred_slots'] = $applicationPreferredSlot->getByApplicationId($app['id']);
+}
 
 function translateValue($value, $field) {
     $translations = [
@@ -54,6 +61,12 @@ function translateValue($value, $field) {
         'yes_no' => [
             'yes' => 'はい',
             'no' => 'いいえ'
+        ],
+        'status' => [
+            'pending' => '受付中',
+            'confirmed' => '確定済み',
+            'cancelled' => 'キャンセル',
+            'completed' => '完了'
         ]
     ];
 
@@ -73,7 +86,7 @@ function translateValue($value, $field) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>申し込み一覧 - エアコン工事管理システム</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="../styles.css">
     <style>
         .admin-container {
             max-width: 1200px;
@@ -200,7 +213,8 @@ function translateValue($value, $field) {
         </header>
 
         <div class="actions">
-            <a href="index.php" class="submit-btn" style="text-decoration: none; display: inline-block;">新規申し込みフォーム</a>
+            <a href="index.php" class="submit-btn" style="text-decoration: none; display: inline-block;">ダッシュボード</a>
+            <a href="../index.php" class="submit-btn" style="text-decoration: none; display: inline-block; background-color: #6c757d; margin-left: 10px;">申し込みフォーム</a>
         </div>
 
         <?php if (empty($applications)): ?>
@@ -212,8 +226,15 @@ function translateValue($value, $field) {
             <?php foreach ($applications as $app): ?>
                 <div class="application-card">
                     <div class="application-header">
-                        <div class="application-id">申し込み番号: #<?php echo htmlspecialchars($app['id']); ?></div>
-                        <div class="application-date"><?php echo date('Y年m月d日 H:i', strtotime($app['created_at'])); ?></div>
+                        <div class="header-left">
+                            <div class="application-id">申し込み番号: #<?php echo htmlspecialchars($app['id']); ?></div>
+                            <div class="application-date"><?php echo date('Y年m月d日 H:i', strtotime($app['created_at'])); ?></div>
+                        </div>
+                        <div class="header-right">
+                            <span class="status-badge status-<?php echo $app['status']; ?>">
+                                <?php echo translateValue($app['status'], 'status'); ?>
+                            </span>
+                        </div>
                     </div>
 
                     <div class="info-grid">
@@ -305,16 +326,28 @@ function translateValue($value, $field) {
 
                         <div class="info-section">
                             <h4>希望日時</h4>
-                            <?php if (!empty($app['preferred_date'])): ?>
-                            <div class="info-item">
-                                <span class="info-label">希望日:</span>
-                                <span class="info-value"><?php echo date('Y年m月d日', strtotime($app['preferred_date'])); ?></span>
-                            </div>
+                            <?php if (!empty($app['preferred_slots'])): ?>
+                                <?php foreach ($app['preferred_slots'] as $slot): ?>
+                                    <div class="info-item">
+                                        <span class="info-label">第<?php echo $slot['priority']; ?>希望:</span>
+                                        <span class="info-value">
+                                            <?php echo date('Y年m月d日', strtotime($slot['preferred_date'])); ?>
+                                            <?php echo $slot['display_name']; ?>
+                                            <?php if ($app['status'] === 'pending'): ?>
+                                                <button class="confirm-btn"
+                                                        onclick="confirmReservation(<?php echo $app['id']; ?>, '<?php echo $slot['preferred_date']; ?>', '<?php echo $slot['time_slot']; ?>')">
+                                                    この日時で確定
+                                                </button>
+                                            <?php endif; ?>
+                                        </span>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <div class="info-item">
+                                    <span class="info-label">希望日時:</span>
+                                    <span class="info-value no-data">希望日時が設定されていません</span>
+                                </div>
                             <?php endif; ?>
-                            <div class="info-item">
-                                <span class="info-label">希望時間:</span>
-                                <span class="info-value"><?php echo translateValue($app['preferred_time'], 'preferred_time'); ?></span>
-                            </div>
                         </div>
                     </div>
 
@@ -328,5 +361,35 @@ function translateValue($value, $field) {
             <?php endforeach; ?>
         <?php endif; ?>
     </div>
+
+    <script>
+        function confirmReservation(applicationId, date, timeSlot) {
+            if (confirm('この日時で予約を確定しますか？\n日時: ' + date + ' ' + timeSlot)) {
+                const formData = new FormData();
+                formData.append('action', 'confirm_reservation');
+                formData.append('application_id', applicationId);
+                formData.append('confirmed_date', date);
+                formData.append('confirmed_time_slot', timeSlot);
+
+                fetch('confirm_reservation.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('予約が確定されました。');
+                        location.reload();
+                    } else {
+                        alert('エラーが発生しました: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('通信エラーが発生しました。');
+                    console.error('Error:', error);
+                });
+            }
+        }
+    </script>
 </body>
 </html>

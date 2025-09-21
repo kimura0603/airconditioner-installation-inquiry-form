@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>エアコン工事申し込みフォーム</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ja.js"></script>
 </head>
 <body>
     <div class="container">
@@ -165,19 +168,26 @@
 
             <section class="form-section">
                 <h2>希望日時</h2>
-                <div class="form-group">
-                    <label for="preferred_date">希望日</label>
-                    <input type="date" id="preferred_date" name="preferred_date">
-                </div>
+                <p class="info-text">カレンダーから空きのある日時を選択してください。第3希望まで選択可能です。</p>
 
-                <div class="form-group">
-                    <label for="preferred_time">希望時間帯</label>
-                    <select id="preferred_time" name="preferred_time">
-                        <option value="flexible">指定なし</option>
-                        <option value="morning">午前中</option>
-                        <option value="afternoon">午後</option>
-                        <option value="evening">夕方</option>
-                    </select>
+                <div id="datetime-selection">
+                    <div class="datetime-picker-container">
+                        <div class="datetime-picker" id="datetime-picker"></div>
+                        <div class="selected-slots">
+                            <h4>選択された希望日時</h4>
+                            <div id="selected-slots-list">
+                                <p class="no-selection">希望日時を選択してください</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 隠しフィールド（フォーム送信用） -->
+                    <input type="hidden" name="preferred_dates[]" id="hidden_date_1">
+                    <input type="hidden" name="preferred_times[]" id="hidden_time_1">
+                    <input type="hidden" name="preferred_dates[]" id="hidden_date_2">
+                    <input type="hidden" name="preferred_times[]" id="hidden_time_2">
+                    <input type="hidden" name="preferred_dates[]" id="hidden_date_3">
+                    <input type="hidden" name="preferred_times[]" id="hidden_time_3">
                 </div>
 
                 <div class="form-group">
@@ -205,6 +215,213 @@
                         removalGroup.style.display = 'none';
                     }
                 });
+            });
+
+            // 選択された日時を保存する配列
+            let selectedSlots = [];
+            let availableDates = new Set();
+
+            // 利用可能な日付を取得
+            function loadAvailableDates() {
+                const today = new Date();
+                const endDate = new Date();
+                endDate.setMonth(today.getMonth() + 2); // 2ヶ月先まで
+
+                // 30日分の利用可能日を確認
+                const promises = [];
+                for (let d = new Date(today); d <= endDate; d.setDate(d.getDate() + 1)) {
+                    if (d > today) { // 明日以降のみ
+                        const dateStr = d.toISOString().split('T')[0];
+                        promises.push(
+                            fetch('get_available_slots.php?date=' + dateStr)
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.success && data.slots.length > 0) {
+                                        // 利用可能な時間帯がある場合のみカレンダーに表示
+                                        const hasAvailableSlots = data.slots.some(slot => slot.available);
+                                        if (hasAvailableSlots) {
+                                            availableDates.add(dateStr);
+                                        }
+                                        return { date: dateStr, slots: data.slots };
+                                    }
+                                    return null;
+                                })
+                                .catch(() => null)
+                        );
+                    }
+                }
+
+                return Promise.all(promises).then(results => {
+                    return results.filter(result => result !== null);
+                });
+            }
+
+            // カレンダー初期化
+            loadAvailableDates().then(availableData => {
+                const calendar = flatpickr("#datetime-picker", {
+                    locale: "ja",
+                    inline: true,
+                    minDate: "today",
+                    maxDate: new Date().fp_incr(60), // 60日後まで
+                    enable: Array.from(availableDates),
+                    onChange: function(selectedDates, dateStr) {
+                        if (selectedDates.length > 0) {
+                            showTimeSlotSelection(dateStr, availableData);
+                        }
+                    }
+                });
+            });
+
+            // 時間帯選択モーダル表示
+            function showTimeSlotSelection(dateStr, availableData) {
+                const dateData = availableData.find(d => d.date === dateStr);
+                if (!dateData) return;
+
+                // 既存のモーダルを削除
+                const existingModal = document.querySelector('.time-slot-modal');
+                if (existingModal) {
+                    existingModal.remove();
+                }
+
+                // モーダル作成
+                const modal = document.createElement('div');
+                modal.className = 'time-slot-modal';
+                modal.innerHTML = `
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>${new Date(dateStr).toLocaleDateString('ja-JP')} の時間帯を選択</h3>
+                            <button class="modal-close">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="time-slot-options">
+                                ${dateData.slots.map(slot => `
+                                    <button class="time-slot-btn ${slot.available ? '' : 'unavailable'}"
+                                            data-date="${dateStr}"
+                                            data-slot="${slot.time_slot}"
+                                            ${slot.available ? '' : 'disabled'}>
+                                        ${slot.display_name}
+                                        ${slot.available ? '' : '<span class="unavailable-text">（予約受付不可）</span>'}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                document.body.appendChild(modal);
+
+                // モーダルイベント
+                modal.querySelector('.modal-close').addEventListener('click', () => {
+                    modal.remove();
+                });
+
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) {
+                        modal.remove();
+                    }
+                });
+
+                // 時間帯ボタンクリック
+                modal.querySelectorAll('.time-slot-btn:not(.unavailable)').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const date = e.target.getAttribute('data-date');
+                        const slot = e.target.getAttribute('data-slot');
+                        addSelectedSlot(date, slot);
+                        modal.remove();
+                    });
+                });
+            }
+
+            // 選択された日時を追加
+            function addSelectedSlot(date, timeSlot) {
+                // 重複チェック
+                const exists = selectedSlots.some(slot =>
+                    slot.date === date && slot.timeSlot === timeSlot
+                );
+
+                if (exists) {
+                    alert('既に選択されている日時です。');
+                    return;
+                }
+
+                if (selectedSlots.length >= 3) {
+                    alert('最大3つまで選択できます。');
+                    return;
+                }
+
+                // 時間帯名を取得
+                const timeSlotNames = {
+                    'morning': '午前（9:00-12:00）',
+                    'afternoon': '午後（12:00-15:00）',
+                    'evening': '夕方（15:00-18:00）'
+                };
+
+                selectedSlots.push({
+                    date: date,
+                    timeSlot: timeSlot,
+                    displayName: timeSlotNames[timeSlot]
+                });
+
+                updateSelectedSlotsList();
+                updateHiddenFields();
+            }
+
+            // 選択リスト更新
+            function updateSelectedSlotsList() {
+                const listContainer = document.getElementById('selected-slots-list');
+
+                if (selectedSlots.length === 0) {
+                    listContainer.innerHTML = '<p class="no-selection">希望日時を選択してください</p>';
+                    return;
+                }
+
+                const html = selectedSlots.map((slot, index) => `
+                    <div class="selected-slot-item">
+                        <span class="slot-priority">第${index + 1}希望:</span>
+                        <span class="slot-datetime">
+                            ${new Date(slot.date).toLocaleDateString('ja-JP')} ${slot.displayName}
+                        </span>
+                        <button type="button" class="remove-slot-btn" data-index="${index}">削除</button>
+                    </div>
+                `).join('');
+
+                listContainer.innerHTML = html;
+
+                // 削除ボタンイベント
+                listContainer.querySelectorAll('.remove-slot-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const index = parseInt(e.target.getAttribute('data-index'));
+                        selectedSlots.splice(index, 1);
+                        updateSelectedSlotsList();
+                        updateHiddenFields();
+                    });
+                });
+            }
+
+            // 隠しフィールド更新
+            function updateHiddenFields() {
+                // 全ての隠しフィールドをクリア
+                for (let i = 1; i <= 3; i++) {
+                    document.getElementById(`hidden_date_${i}`).value = '';
+                    document.getElementById(`hidden_time_${i}`).value = '';
+                }
+
+                // 選択された日時を設定
+                selectedSlots.forEach((slot, index) => {
+                    if (index < 3) {
+                        document.getElementById(`hidden_date_${index + 1}`).value = slot.date;
+                        document.getElementById(`hidden_time_${index + 1}`).value = slot.timeSlot;
+                    }
+                });
+            }
+
+            // フォーム送信時のバリデーション
+            document.getElementById('applicationForm').addEventListener('submit', function(e) {
+                if (selectedSlots.length === 0) {
+                    e.preventDefault();
+                    alert('希望日時を少なくとも1つ選択してください。');
+                    return false;
+                }
             });
         });
     </script>
