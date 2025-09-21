@@ -2,10 +2,12 @@
 require_once '../models/Application.php';
 require_once '../models/ApplicationPreferredSlot.php';
 require_once '../models/ReservationSlot.php';
+require_once '../models/AvailabilitySettings.php';
 
 $application = new Application();
 $applicationPreferredSlot = new ApplicationPreferredSlot();
 $reservationSlot = new ReservationSlot();
+$availabilitySettings = new AvailabilitySettings();
 
 $action = $_GET['action'] ?? '';
 $year = $_GET['year'] ?? date('Y');
@@ -65,22 +67,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $conn->rollback();
             $error_message = "予約キャンセル中にエラーが発生しました: " . $e->getMessage();
         }
-    } elseif ($action === 'toggle_slot_availability') {
-        $date = $_POST['date'];
-        $timeSlot = $_POST['time_slot'];
-        $isAvailable = $_POST['is_available'] === '1' ? true : false;
+    } elseif ($action === 'set_date_availability') {
+        $date = $_POST['date'] ?? '';
+        $timeSlot = $_POST['time_slot'] ?? '';
+        $isAvailable = $_POST['is_available'] ?? '';
+        $reason = $_POST['reason'] ?? '';
 
         try {
-            $reservationSlot->setSlotAvailability($date, $timeSlot, $isAvailable);
-            $success_message = "時間枠の設定を更新しました。";
+            $availabilitySettings->setDateOverride($date, $timeSlot, $isAvailable === '1', $reason, 'admin');
+            $success_message = "日時の予約可用性を更新しました。";
         } catch (Exception $e) {
-            $error_message = "設定更新中にエラーが発生しました: " . $e->getMessage();
+            $error_message = "可用性の更新中にエラーが発生しました: " . $e->getMessage();
+        }
+    } elseif ($action === 'remove_date_override') {
+        $date = $_POST['date'] ?? '';
+        $timeSlot = $_POST['time_slot'] ?? '';
+
+        try {
+            $availabilitySettings->removeDateOverride($date, $timeSlot);
+            $success_message = "日時設定をデフォルトに戻しました。";
+        } catch (Exception $e) {
+            $error_message = "設定リセット中にエラーが発生しました: " . $e->getMessage();
         }
     }
 }
 
 // データ取得
-$applications = $application->getAll();
+$statusFilter = $_GET['status'] ?? 'all';
+if ($statusFilter === 'all') {
+    $applications = $application->getAll();
+} else {
+    $applications = $application->getByStatus($statusFilter);
+}
 $calendarData = $reservationSlot->getMonthlyCalendar($year, $month);
 
 // カレンダー整理
@@ -289,6 +307,34 @@ function translateValue($value, $field) {
             margin: 10px 0;
         }
 
+        .availability-btn {
+            background: none;
+            border: none;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 2px;
+            border-radius: 3px;
+            transition: background-color 0.2s;
+        }
+
+        .availability-btn:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        .reset-btn {
+            background: none;
+            border: none;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 2px;
+            border-radius: 3px;
+            transition: background-color 0.2s;
+        }
+
+        .reset-btn:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
         /* カレンダー凡例スタイル */
         .calendar-legend {
             background: #f8f9fa;
@@ -380,6 +426,13 @@ function translateValue($value, $field) {
             color: #721c24;
         }
 
+        .submit-btn.active {
+            transform: scale(1.05);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            font-weight: bold;
+            border: 2px solid rgba(255,255,255,0.8);
+        }
+
         @media (max-width: 768px) {
             .calendar-container {
                 grid-template-columns: 1fr;
@@ -410,7 +463,7 @@ function translateValue($value, $field) {
             <a href="index.php" class="nav-tab">ダッシュボード</a>
             <a href="?tab=calendar" class="nav-tab <?php echo ($_GET['tab'] ?? 'calendar') === 'calendar' ? 'active' : ''; ?>">カレンダー表示</a>
             <a href="?tab=list" class="nav-tab <?php echo ($_GET['tab'] ?? '') === 'list' ? 'active' : ''; ?>">申し込み一覧</a>
-            <a href="applications.php" class="nav-tab">詳細管理画面</a>
+            <a href="availability_settings.php" class="nav-tab">基本設定</a>
             <a href="../index.php" class="nav-tab">申し込みフォーム</a>
         </div>
 
@@ -495,11 +548,45 @@ function translateValue($value, $field) {
                             $slotNames = ['morning' => '午前', 'afternoon' => '午後', 'evening' => '夕方'];
                             $reservationKey = $currentDate . '_' . $slot;
                             $dayReservations = $reservationDetails[$reservationKey] ?? [];
+
+                            // 可用性チェック
+                            $isDateTimeAvailable = $availabilitySettings->isDateTimeAvailable($currentDate, $slot);
+                            $hasOverride = $availabilitySettings->getDateOverride($currentDate, $slot);
+                            $hasConfirmedReservation = false;
+
+                            foreach ($dayReservations as $reservation) {
+                                if (!isset($reservation['is_pending'])) {
+                                    $hasConfirmedReservation = true;
+                                    break;
+                                }
+                            }
                             ?>
-                            <div class="time-slot <?php echo $status; ?>">
+                            <div class="time-slot <?php echo $status; ?>" style="position: relative;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
                                     <span><?php echo $slotNames[$slot]; ?></span>
-                                    <span><?php echo $text; ?></span>
+                                    <div style="display: flex; align-items: center; gap: 5px;">
+                                        <span><?php echo $text; ?></span>
+                                        <?php if ($isCurrentMonth): ?>
+                                            <div class="availability-control" style="display: flex; gap: 2px;">
+                                                <?php if (!$hasConfirmedReservation): ?>
+                                                    <button onclick="toggleAvailability('<?php echo $currentDate; ?>', '<?php echo $slot; ?>', <?php echo $isDateTimeAvailable ? 'false' : 'true'; ?>)"
+                                                            class="availability-btn <?php echo $isDateTimeAvailable ? 'enabled' : 'disabled'; ?>"
+                                                            title="<?php echo $isDateTimeAvailable ? '受付可能を無効にする' : '受付可能にする'; ?>">
+                                                        <?php echo $isDateTimeAvailable ? '🟢' : '🔴'; ?>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <span title="確定済み予約があるため変更不可" style="opacity: 0.5;">🔒</span>
+                                                <?php endif; ?>
+                                                <?php if ($hasOverride): ?>
+                                                    <button onclick="removeOverride('<?php echo $currentDate; ?>', '<?php echo $slot; ?>')"
+                                                            class="reset-btn"
+                                                            title="基本設定に戻す">
+                                                        ↩️
+                                                    </button>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
                                 </div>
 
                                 <?php if (!empty($dayReservations)): ?>
@@ -542,10 +629,10 @@ function translateValue($value, $field) {
         <?php else: ?>
             <!-- 申し込み一覧 -->
             <div class="form-actions">
-                <button onclick="filterApplications('all')" class="submit-btn btn-small">全て</button>
-                <button onclick="filterApplications('pending')" class="submit-btn btn-small" style="background: #ffc107;">申し込み中</button>
-                <button onclick="filterApplications('confirmed')" class="submit-btn btn-small" style="background: #28a745;">確定済み</button>
-                <button onclick="filterApplications('cancelled')" class="submit-btn btn-small" style="background: #dc3545;">キャンセル</button>
+                <a href="?tab=list&status=all" class="submit-btn btn-small <?php echo $statusFilter === 'all' ? 'active' : ''; ?>">全て</a>
+                <a href="?tab=list&status=pending" class="submit-btn btn-small <?php echo $statusFilter === 'pending' ? 'active' : ''; ?>" style="background: <?php echo $statusFilter === 'pending' ? '#e0a800' : '#ffc107'; ?>;">申し込み中</a>
+                <a href="?tab=list&status=confirmed" class="submit-btn btn-small <?php echo $statusFilter === 'confirmed' ? 'active' : ''; ?>" style="background: <?php echo $statusFilter === 'confirmed' ? '#1e7e34' : '#28a745'; ?>;">確定済み</a>
+                <a href="?tab=list&status=cancelled" class="submit-btn btn-small <?php echo $statusFilter === 'cancelled' ? 'active' : ''; ?>" style="background: <?php echo $statusFilter === 'cancelled' ? '#c82333' : '#dc3545'; ?>;">キャンセル</a>
             </div>
 
             <?php foreach ($applications as $app): ?>
@@ -558,7 +645,15 @@ function translateValue($value, $field) {
                                 <?php echo translateValue($app['status'], 'status'); ?>
                             </span>
                         </div>
-                        <div class="application-date"><?php echo date('Y年m月d日 H:i', strtotime($app['created_at'])); ?></div>
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <div class="application-date"><?php echo date('Y年m月d日 H:i', strtotime($app['created_at'])); ?></div>
+                            <a href="application_detail.php?id=<?php echo $app['id']; ?>"
+                               style="background: rgba(255,255,255,0.2); color: white; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-size: 14px; border: 1px solid rgba(255,255,255,0.3); transition: all 0.3s;"
+                               onmouseover="this.style.background='rgba(255,255,255,0.3)'"
+                               onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                                📋 詳細表示
+                            </a>
+                        </div>
                     </div>
 
                     <div class="info-grid">
@@ -729,6 +824,7 @@ function translateValue($value, $field) {
                         ` : ''}
 
                         <div style="text-align: center; margin-top: 20px;">
+                            <a href="application_detail.php?id=${reservation.id}" style="background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px; margin-right: 10px;">📋 詳細画面で確認</a>
                             <a href="?tab=list" style="background: #007bff; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px; margin-right: 10px;">申し込み一覧で確認</a>
                             <button onclick="this.closest('.reservation-detail-modal').remove()" style="background: #6c757d; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">閉じる</button>
                         </div>
@@ -744,6 +840,74 @@ function translateValue($value, $field) {
                     modal.remove();
                 }
             });
+        }
+
+        function toggleAvailability(date, timeSlot, isAvailable) {
+            if (!confirm('この日時の予約受付可能性を変更しますか？')) {
+                return;
+            }
+
+            const reason = isAvailable ? '' : prompt('予約受付を停止する理由（任意）:') ?? '';
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.style.display = 'none';
+
+            const actionInput = document.createElement('input');
+            actionInput.name = 'action';
+            actionInput.value = 'set_date_availability';
+            form.appendChild(actionInput);
+
+            const dateInput = document.createElement('input');
+            dateInput.name = 'date';
+            dateInput.value = date;
+            form.appendChild(dateInput);
+
+            const timeSlotInput = document.createElement('input');
+            timeSlotInput.name = 'time_slot';
+            timeSlotInput.value = timeSlot;
+            form.appendChild(timeSlotInput);
+
+            const isAvailableInput = document.createElement('input');
+            isAvailableInput.name = 'is_available';
+            isAvailableInput.value = isAvailable ? '1' : '0';
+            form.appendChild(isAvailableInput);
+
+            const reasonInput = document.createElement('input');
+            reasonInput.name = 'reason';
+            reasonInput.value = reason;
+            form.appendChild(reasonInput);
+
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        function removeOverride(date, timeSlot) {
+            if (!confirm('この日時の設定を基本設定に戻しますか？')) {
+                return;
+            }
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.style.display = 'none';
+
+            const actionInput = document.createElement('input');
+            actionInput.name = 'action';
+            actionInput.value = 'remove_date_override';
+            form.appendChild(actionInput);
+
+            const dateInput = document.createElement('input');
+            dateInput.name = 'date';
+            dateInput.value = date;
+            form.appendChild(dateInput);
+
+            const timeSlotInput = document.createElement('input');
+            timeSlotInput.name = 'time_slot';
+            timeSlotInput.value = timeSlot;
+            form.appendChild(timeSlotInput);
+
+            document.body.appendChild(form);
+            form.submit();
         }
     </script>
 </body>

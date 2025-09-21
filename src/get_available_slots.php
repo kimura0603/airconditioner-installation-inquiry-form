@@ -2,6 +2,8 @@
 mb_internal_encoding('UTF-8');
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/models/ReservationSlot.php';
+require_once __DIR__ . '/models/AvailabilitySettings.php';
+require_once __DIR__ . '/models/BookingSettings.php';
 
 if (!isset($_GET['date'])) {
     echo json_encode(['success' => false, 'message' => 'Date parameter is required'], JSON_UNESCAPED_UNICODE);
@@ -24,6 +26,18 @@ if (strtotime($date) < strtotime('today')) {
 
 try {
     $reservationSlot = new ReservationSlot();
+    $availabilitySettings = new AvailabilitySettings();
+    $bookingSettings = new BookingSettings();
+
+    // 期間チェック
+    if (!$bookingSettings->isDateWithinBookingPeriod($date)) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'この日付は予約受付期間外です。',
+            'booking_period' => $bookingSettings->getBookingDateRange()
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 
     // 指定日のすべての時間帯を取得（満席も含む）
     $timeSlots = ['morning', 'afternoon', 'evening'];
@@ -33,7 +47,12 @@ try {
         $slotInfo = $reservationSlot->getSlotInfo($date, $slot);
 
         if ($slotInfo && $slotInfo['is_active']) {
-            $isAvailable = $slotInfo['is_available'] &&
+            // 可用性設定をチェック
+            $isDateTimeAvailable = $availabilitySettings->isDateTimeAvailable($date, $slot);
+
+            // 最終的な利用可能性判定
+            $isAvailable = $isDateTimeAvailable &&
+                          $slotInfo['is_available'] &&
                           $slotInfo['current_bookings'] < $slotInfo['max_capacity'];
 
             $availableSlots[] = [
@@ -43,8 +62,9 @@ try {
                 'end_time' => $slotInfo['end_time'],
                 'max_capacity' => $slotInfo['max_capacity'],
                 'current_bookings' => $slotInfo['current_bookings'],
-                'available_count' => $slotInfo['max_capacity'] - $slotInfo['current_bookings'],
-                'available' => $isAvailable
+                'available_count' => $isAvailable ? ($slotInfo['max_capacity'] - $slotInfo['current_bookings']) : 0,
+                'available' => $isAvailable,
+                'admin_disabled' => !$isDateTimeAvailable
             ];
         }
     }

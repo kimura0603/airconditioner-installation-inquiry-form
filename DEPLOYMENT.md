@@ -30,7 +30,7 @@ src/
 ├── admin/                      # 管理画面（要認証）
 │   ├── index.php              # ダッシュボード
 │   ├── reservations.php       # 予約管理
-│   ├── applications.php       # 申し込み一覧
+│   ├── application_detail.php # 申し込み詳細表示
 │   └── .htaccess              # セキュリティ設定
 ├── models/                     # データモデル
 │   ├── Application.php        # 申し込み管理

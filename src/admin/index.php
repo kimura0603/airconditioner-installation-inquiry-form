@@ -159,7 +159,8 @@ $calendarData = $reservationSlot->getMonthlyCalendar($year, $month);
         <nav class="dashboard-nav">
             <a href="index.php" class="nav-btn">ダッシュボード</a>
             <a href="reservations.php" class="nav-btn">予約管理</a>
-            <a href="applications.php" class="nav-btn">申し込み一覧</a>
+            <a href="reservations.php?tab=list" class="nav-btn">申し込み一覧</a>
+            <a href="availability_settings.php" class="nav-btn">基本設定</a>
             <a href="../index.php" class="nav-btn secondary">申し込みフォーム</a>
         </nav>
 
@@ -187,16 +188,26 @@ $calendarData = $reservationSlot->getMonthlyCalendar($year, $month);
             <div class="action-buttons">
                 <a href="reservations.php?tab=calendar" class="action-btn">カレンダー表示</a>
                 <a href="reservations.php?tab=list" class="action-btn">申し込み一覧</a>
-                <a href="applications.php" class="action-btn secondary">詳細管理画面</a>
+                <a href="reservations.php?tab=list" class="action-btn secondary">申し込み詳細管理</a>
+                <a href="availability_settings.php" class="action-btn secondary">基本設定</a>
                 <a href="../index.php" class="action-btn secondary">申し込みフォーム</a>
             </div>
         </div>
 
         <?php if ($pendingApplications > 0): ?>
-        <div class="info-section">
+        <div class="info-section" style="border-left: 4px solid #ffc107; background: linear-gradient(135deg, #fff3cd, #ffeaa7);">
             <h4>⚠️ 対応が必要な申し込み</h4>
-            <p><?php echo $pendingApplications; ?>件の申し込みが予約確定待ちです。</p>
-            <a href="reservations.php?tab=list" class="action-btn">今すぐ確認</a>
+            <p style="margin: 10px 0; font-size: 16px;">
+                <strong><?php echo $pendingApplications; ?>件</strong>の申し込みが予約確定待ちです。
+            </p>
+            <div style="margin-top: 15px;">
+                <a href="reservations.php?tab=list&status=pending" class="action-btn" style="background: #ffc107; color: #212529; font-weight: bold; padding: 12px 20px; font-size: 16px; box-shadow: 0 4px 8px rgba(255,193,7,0.3);">
+                    📋 申し込み中の案件を確認
+                </a>
+                <a href="reservations.php?tab=list" class="action-btn secondary" style="margin-left: 10px;">
+                    全件表示
+                </a>
+            </div>
         </div>
         <?php endif; ?>
 

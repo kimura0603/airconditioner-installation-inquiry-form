@@ -2,6 +2,8 @@
 require_once __DIR__ . '/models/Application.php';
 require_once __DIR__ . '/models/ApplicationPreferredSlot.php';
 require_once __DIR__ . '/models/ReservationSlot.php';
+require_once __DIR__ . '/models/AvailabilitySettings.php';
+require_once __DIR__ . '/models/BookingSettings.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data = [
@@ -96,6 +98,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $application = new Application();
             $applicationPreferredSlot = new ApplicationPreferredSlot();
             $reservationSlot = new ReservationSlot();
+            $availabilitySettings = new AvailabilitySettings();
+            $bookingSettings = new BookingSettings();
 
             // 申し込み作成
             $applicationId = $application->create($data);
@@ -104,6 +108,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // 希望日時を保存
                 for ($i = 0; $i < 3; $i++) {
                     if (!empty($preferredDates[$i]) && !empty($preferredTimes[$i])) {
+                        // 期間チェック
+                        if (!$bookingSettings->isDateWithinBookingPeriod($preferredDates[$i])) {
+                            throw new Exception("選択された日付（" . ($i + 1) . "番目）は予約受付期間外です。");
+                        }
+
+                        // 可用性設定を確認
+                        if (!$availabilitySettings->isDateTimeAvailable($preferredDates[$i], $preferredTimes[$i])) {
+                            throw new Exception("選択された時間帯（" . ($i + 1) . "番目）は現在受付を停止しています。");
+                        }
+
                         // 空き状況を再確認
                         if (!$reservationSlot->isSlotAvailable($preferredDates[$i], $preferredTimes[$i])) {
                             throw new Exception("選択された時間帯（" . ($i + 1) . "番目）は既に満席です。");

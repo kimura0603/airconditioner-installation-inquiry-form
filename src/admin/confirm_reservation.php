@@ -32,6 +32,7 @@ try {
     $conn->beginTransaction();
 
     $application = new Application();
+    $applicationPreferredSlot = new ApplicationPreferredSlot();
     $reservationSlot = new ReservationSlot();
 
     // アプリケーションの存在確認
@@ -50,14 +51,28 @@ try {
         throw new Exception('選択された日時は既に満席です。');
     }
 
+    // このお客様の全ての希望日時を取得
+    $preferredSlots = $applicationPreferredSlot->getByApplicationId($applicationId);
+
     // アプリケーションのステータスを確定済みに更新
     $updateResult = $application->updateStatus($applicationId, 'confirmed', $confirmedDate, $confirmedTimeSlot);
     if (!$updateResult) {
         throw new Exception('申し込みステータスの更新に失敗しました。');
     }
 
-    // 予約枠のカウントをインクリメント（選択された日時のみ）
-    $reservationSlot->incrementBooking($confirmedDate, $confirmedTimeSlot);
+    // 全ての希望日時のカウントを減らす
+    foreach ($preferredSlots as $slot) {
+        $reservationSlot->decrementBooking($slot['preferred_date'], $slot['time_slot']);
+    }
+
+    // 確定した日時以外の希望日時を論理削除
+    $softDeleteResult = $applicationPreferredSlot->softDeleteOtherPreferences($applicationId, $confirmedDate, $confirmedTimeSlot);
+    if (!$softDeleteResult) {
+        throw new Exception('他の希望日時の論理削除に失敗しました。');
+    }
+
+    // 確定した日時を他の予約が入れないように無効化
+    $reservationSlot->setSlotAvailability($confirmedDate, $confirmedTimeSlot, false);
 
     $conn->commit();
 
