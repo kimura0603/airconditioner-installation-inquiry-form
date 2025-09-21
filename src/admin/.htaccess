@@ -1,0 +1,29 @@
+# 管理画面のセキュリティ設定
+# Basic認証を有効にする場合は以下をコメントアウト
+
+# AuthType Basic
+# AuthName "管理画面 - 認証が必要です"
+# AuthUserFile /var/www/html/admin/.htpasswd
+# Require valid-user
+
+# ディレクトリリスティングを無効化
+Options -Indexes
+
+# セキュリティヘッダー
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options nosniff
+    Header always set X-Frame-Options DENY
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# 設定ファイルへのアクセス禁止
+<Files "*.conf">
+    Order allow,deny
+    Deny from all
+</Files>
+
+<Files ".htpasswd">
+    Order allow,deny
+    Deny from all
+</Files>

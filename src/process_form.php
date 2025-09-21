@@ -1,5 +1,9 @@
 <?php
-require_once 'models/Application.php';
+require_once __DIR__ . '/models/Application.php';
+require_once __DIR__ . '/models/ApplicationPreferredSlot.php';
+require_once __DIR__ . '/models/ReservationSlot.php';
+require_once __DIR__ . '/models/AvailabilitySettings.php';
+require_once __DIR__ . '/models/BookingSettings.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data = [
@@ -19,10 +23,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'electrical_work' => $_POST['electrical_work'] ?? '',
         'piping_work' => $_POST['piping_work'] ?? '',
         'wall_drilling' => $_POST['wall_drilling'] ?? '',
-        'preferred_date' => !empty($_POST['preferred_date']) ? $_POST['preferred_date'] : null,
-        'preferred_time' => $_POST['preferred_time'] ?? 'flexible',
         'special_requests' => $_POST['special_requests'] ?? ''
     ];
+
+    $preferredDates = $_POST['preferred_dates'] ?? [];
+    $preferredTimes = $_POST['preferred_times'] ?? [];
 
     $errors = [];
 
@@ -66,18 +71,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = '壁穴あけ工事の選択は必須です。';
     }
 
+    // 希望日時のバリデーション
+    if (empty($preferredDates[0]) || empty($preferredTimes[0])) {
+        $errors[] = '第1希望の日時は必須です。';
+    }
+
+    // 希望日時の重複チェック
+    $dateTimeSet = [];
+    for ($i = 0; $i < 3; $i++) {
+        if (!empty($preferredDates[$i]) && !empty($preferredTimes[$i])) {
+            $combination = $preferredDates[$i] . '_' . $preferredTimes[$i];
+            if (in_array($combination, $dateTimeSet)) {
+                $errors[] = '同じ日時を複数選択することはできません。';
+                break;
+            }
+            $dateTimeSet[] = $combination;
+        }
+    }
+
     if (empty($errors)) {
         try {
-            $application = new Application();
-            $id = $application->create($data);
+            $database = new Database();
+            $conn = $database->getConnection();
+            $conn->beginTransaction();
 
-            if ($id) {
-                $success_message = "申し込みが正常に受け付けられました。申し込み番号: " . $id;
+            $application = new Application();
+            $applicationPreferredSlot = new ApplicationPreferredSlot();
+            $reservationSlot = new ReservationSlot();
+            $availabilitySettings = new AvailabilitySettings();
+            $bookingSettings = new BookingSettings();
+
+            // 申し込み作成
+            $applicationId = $application->create($data);
+
+            if ($applicationId) {
+                // 希望日時を保存
+                for ($i = 0; $i < 3; $i++) {
+                    if (!empty($preferredDates[$i]) && !empty($preferredTimes[$i])) {
+                        // 期間チェック
+                        if (!$bookingSettings->isDateWithinBookingPeriod($preferredDates[$i])) {
+                            throw new Exception("選択された日付（" . ($i + 1) . "番目）は予約受付期間外です。");
+                        }
+
+                        // 可用性設定を確認
+                        if (!$availabilitySettings->isDateTimeAvailable($preferredDates[$i], $preferredTimes[$i])) {
+                            throw new Exception("選択された時間帯（" . ($i + 1) . "番目）は現在受付を停止しています。");
+                        }
+
+                        // 空き状況を再確認
+                        if (!$reservationSlot->isSlotAvailable($preferredDates[$i], $preferredTimes[$i])) {
+                            throw new Exception("選択された時間帯（" . ($i + 1) . "番目）は既に満席です。");
+                        }
+
+                        $applicationPreferredSlot->create(
+                            $applicationId,
+                            $preferredDates[$i],
+                            $preferredTimes[$i],
+                            $i + 1
+                        );
+
+                        // 予約枠カウントをインクリメント
+                        $reservationSlot->incrementBooking($preferredDates[$i], $preferredTimes[$i]);
+                    }
+                }
+
+                $conn->commit();
+                $success_message = "申し込みが正常に受け付けられました。申し込み番号: " . $applicationId;
             } else {
-                $errors[] = "申し込み処理中にエラーが発生しました。";
+                throw new Exception("申し込み処理中にエラーが発生しました。");
             }
         } catch (Exception $e) {
-            $errors[] = "データベースエラーが発生しました: " . $e->getMessage();
+            $conn->rollback();
+            $errors[] = "エラーが発生しました: " . $e->getMessage();
         }
     }
 }
@@ -118,7 +183,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <div class="form-actions">
             <a href="index.php" class="submit-btn" style="text-decoration: none; display: inline-block;">新しい申し込み</a>
-            <a href="admin.php" class="submit-btn" style="text-decoration: none; display: inline-block; background-color: #6c757d; margin-left: 10px;">申し込み一覧（管理画面）</a>
         </div>
     </div>
 </body>

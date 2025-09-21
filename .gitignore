@@ -1,0 +1,109 @@
+# ==================================================
+# .gitignore for Air Conditioner Booking System
+# ==================================================
+
+# ===== Dependencies and Package Managers =====
+vendor/
+node_modules/
+# composer.lock - Keep this tracked for dependency version locking
+
+# ===== IDE and Editor Files =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== Testing and Coverage =====
+.phpunit.result.cache
+phpunit.xml.bak
+coverage/
+.coverage/
+tests/_output/
+
+# ===== Logs and Temporary Files =====
+*.log
+*.tmp
+*.temp
+*.cache
+error.log
+access.log
+php_errors.log
+
+# ===== Environment and Configuration =====
+.env
+.env.local
+.env.development
+.env.testing
+.env.production
+.env.backup
+config/local.php
+config/production.php
+
+# ===== Database =====
+*.sqlite
+*.sqlite3
+*.db
+*.sql.backup
+database.sql
+db_backup/
+dumps/
+
+# ===== Build and Compiled Files =====
+dist/
+build/
+compiled/
+*.min.js
+*.min.css
+
+# ===== OS Generated Files =====
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ===== Development Tools =====
+.sass-cache/
+.grunt/
+.bower_components/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ===== Security Sensitive Files =====
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+keys/
+certificates/
+
+# ===== Docker (if needed to ignore) =====
+# docker-compose.override.yml
+
+# ===== Project Specific =====
+# Keep these items tracked as they are part of the project:
+# - CLAUDE.md (development documentation)
+# - phpunit.xml (test configuration)
+# - composer.json (dependency definition)
+# - run-tests.sh (test script)
+
+# ===== Temporary Working Files =====
+memo.txt
+notes.txt
+todo.txt
+scratch/
+temp/
+
+# ===== Backup Files =====
+*.bak
+*.backup
+*.old
+*~
